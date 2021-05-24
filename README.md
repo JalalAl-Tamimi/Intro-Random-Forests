@@ -19,7 +19,8 @@ To prepare for the workshop, participants are asked to read this paper to famili
 Make sure to install the following packages ahead of the meeting, by running the following code:
 
 ```{r}
-requiredPackages = c('tidyverse', 'broom', 'knitr', 'corrplot', 'psycho', 'PresenceAbsence', 'party', 'ranger', 'tidymodels', 'pROC', 'varImp', 'lattice', 'vip', 'doFuture', 'doRNG', 'parallelly', 'parallel')
+requiredPackages = c('tidyverse', 'broom', 'knitr', 'corrplot', 'psycho', 'PresenceAbsence', 'party', 'ranger', 
+'tidymodels', 'pROC', 'varImp', 'lattice', 'vip', 'doFuture', 'doRNG', 'parallelly', 'parallel')
 for(p in requiredPackages){
   if(!require(p,character.only = TRUE)) install.packages(p)
   library(p,character.only = TRUE)
