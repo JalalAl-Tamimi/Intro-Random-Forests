@@ -1,5 +1,6 @@
 ---
 layout: post
+title: Introduction to Random Forests
 ---
 
 # Introduction to Random Forests
