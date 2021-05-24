@@ -1,6 +1,6 @@
 # Introduction to Random Forests
 
-This repo contains details of the material used in the workshop **Introduction to Random Forests** delivered to the group: *Sounds of Language and Speech: Aarhus University's phonetics and phonology (and more) research group*, on 16th June 2021 [link](https://soundsoflanguageandspeech.wordpress.com/).
+This repo contains details of the material used in the workshop **Introduction to Random Forests** delivered to the group: *[Sounds of Language and Speech: Aarhus University's phonetics and phonology (and more) research group](https://soundsoflanguageandspeech.wordpress.com/)*, on 16th June 2021.
 
 In this workshop, we start by introducing very briefly predictive modelling as a classification tool. We (re-)introduce Generalised Linear Models (GLM) as a classification tool. We present links between GLM and Signal Detection Theory and introduce the notions of accuracy, error, sensitivity, specificity, Area Under the Curve, and dprime. 
 
@@ -24,5 +24,6 @@ for(p in requiredPackages){
   library(p,character.only = TRUE)
 }
 `
+
 Additional material will be added closer to the time
 
