@@ -1,3 +1,6 @@
+---
+layout: post
+---
 # Introduction to Random Forests
 
 This repo contains details of the material used in the workshop **Introduction to Random Forests** delivered to the group: *[Sounds of Language and Speech: Aarhus University's phonetics and phonology (and more) research group](https://soundsoflanguageandspeech.wordpress.com/)*, on 16th June 2021.
