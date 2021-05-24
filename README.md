@@ -14,7 +14,7 @@ We use specific settings in `ranger` to mimic the unbiased selection process imp
 
 At the end, we introduce the [`tidymodels`](https://www.tidymodels.org/) and discuss briefly their philosophy. We use `ranger` as an engine and showcase the strength of `tidymodels` as a way to facilitate and homogonies the use of machine learning. 
 
-To prepare for the workshop, participants are asked to read this paper to familiarise themselves with predictive modelling and the acoustic correlates used: *Al-Tamimi, J. (2017). Revisiting acoustic correlates of pharyngealization in Jordanian and Moroccan Arabic: Implications for formal representations. Laboratory Phonology: Journal of the Association for Laboratory Phonology, 8(1), 28. DOI: http://doi.org/10.5334/labphon.19*
+To prepare for the workshop, participants are asked to read this paper to familiarise themselves with predictive modelling and the acoustic correlates used: *Al-Tamimi, J. (2017). Revisiting acoustic correlates of pharyngealization in Jordanian and Moroccan Arabic: Implications for formal representations. Laboratory Phonology: Journal of the Association for Laboratory Phonology, 8(1), 28. DOI: [http://doi.org/10.5334/labphon.19](http://doi.org/10.5334/labphon.19)*
 
 Make sure to install the following packages ahead of the meeting, by running the following code:
 
