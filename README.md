@@ -10,9 +10,9 @@ We then move to Random Forests and use two frameworks:
 1. RF as grown via permutation tests using Conditional-Inference Trees as implemented in the package [party](https://cran.r-project.org/web/packages/party/vignettes/party.pdf) 
 2. RF as grow via permutation tests as implemented in the package [ranger](https://cran.r-project.org/web/packages/ranger/ranger.pdf)
 
-We use specific settings in `ranger` to mimic the unbiased selection process implemented in the package `party`.
+We use specific settings in ranger to mimic the unbiased selection process implemented in the package party.
 
-At the end, we introduce the [tidymodels](https://www.tidymodels.org/) and discuss briefly their philosophy. We use `ranger` as an engine and showcase the strength of `tidymodels` as a way to facilitate and homogonies the use of machine learning. 
+At the end, we introduce the [tidymodels](https://www.tidymodels.org/) and discuss briefly their philosophy. We use ranger as an engine and showcase the strength of tidymodels as a way to facilitate the use of machine learning. 
 
 To prepare for the workshop, participants are asked to read this paper to familiarise themselves with predictive modelling and the acoustic correlates used: *Al-Tamimi, J. (2017). Revisiting acoustic correlates of pharyngealization in Jordanian and Moroccan Arabic: Implications for formal representations. Laboratory Phonology: Journal of the Association for Laboratory Phonology, 8(1), 28. DOI: [https://doi.org/10.5334/labphon.19](https://doi.org/10.5334/labphon.19)*
 
