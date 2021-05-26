@@ -1,5 +1,7 @@
 # Introduction to Random Forests
 
+## Content
+
 This repo contains details of the material used in the workshop **Introduction to Random Forests** delivered to the group: *[Sounds of Language and Speech: Aarhus University's phonetics and phonology (and more) research group](https://soundsoflanguageandspeech.wordpress.com/)*, on 16th June 2021.
 
 In this workshop, we start by introducing very briefly predictive modelling as a classification tool. We (re-)introduce Generalised Linear Models (GLM) as a classification tool. We then present links between GLM and Signal Detection Theory and introduce the notions of accuracy, error, sensitivity, specificity, Area Under the Curve, and dprime. 
@@ -15,10 +17,12 @@ We use specific settings in ranger to mimic the unbiased selection process imple
 
 At the end, we introduce the [tidymodels](https://www.tidymodels.org/) and briefly discuss their philosophy. We use ranger as an engine and showcase the strength of tidymodels to facilitate the use of machine learning. 
 
-To prepare for the workshop, participants will need to have knowledge of how to use R, and of the [tidyverse](https://www.tidyverse.org/). We will mostly use RMarkdown to run the code, with an opportunity to practice the code on their own. 
-Participants are asked to read this paper to familiarise themselves with predictive modelling and the acoustic correlates used: *Al-Tamimi, J. (2017). Revisiting acoustic correlates of pharyngealization in Jordanian and Moroccan Arabic: Implications for formal representations. Laboratory Phonology: Journal of the Association for Laboratory Phonology, 8(1), 28. DOI: [https://doi.org/10.5334/labphon.19](https://doi.org/10.5334/labphon.19)*
+## To prepare for the workshop, participants will need to 
 
-Make sure to install the following packages ahead of the meeting, by running the following code:
+1. Have knowledge of how to use R, and of the [tidyverse](https://www.tidyverse.org/). We will mostly use RMarkdown to run the code, with an opportunity to practice the code on their own. 
+2. Read this paper to familiarise themselves with predictive modelling and the acoustic correlates used: *Al-Tamimi, J. (2017). Revisiting acoustic correlates of pharyngealization in Jordanian and Moroccan Arabic: Implications for formal representations. Laboratory Phonology: Journal of the Association for Laboratory Phonology, 8(1), 28. DOI: [https://doi.org/10.5334/labphon.19](https://doi.org/10.5334/labphon.19)*
+3. Install the following packages ahead of the meeting, by running the following code:
+
 
 ```{r}
 requiredPackages = c('tidyverse', 'broom', 'knitr', 'corrplot', 'psycho', 
