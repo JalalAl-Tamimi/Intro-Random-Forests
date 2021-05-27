@@ -20,8 +20,9 @@ At the end, we introduce the [tidymodels](https://www.tidymodels.org/) and brief
 ## To prepare for the workshop, participants will need to 
 
 1. Have knowledge of how to use R, and of the [tidyverse](https://www.tidyverse.org/). We will mostly use RMarkdown to run the code, with an opportunity to practice the code on their own. 
-2. Read this paper to familiarise themselves with predictive modelling and the acoustic correlates used: *Al-Tamimi, J. (2017). Revisiting acoustic correlates of pharyngealization in Jordanian and Moroccan Arabic: Implications for formal representations. Laboratory Phonology: Journal of the Association for Laboratory Phonology, 8(1), 28. DOI: [https://doi.org/10.5334/labphon.19](https://doi.org/10.5334/labphon.19)*
-3. Install the following packages ahead of the meeting, by running the following code:
+2. Read this paper to familiarise themselves with predictive modelling and the acoustic correlates used: *Al-Tamimi, J. (2017). Revisiting acoustic correlates of pharyngealization in Jordanian and Moroccan Arabic: Implications for formal representations. Laboratory Phonology: Journal of the Association for Laboratory Phonology, 8(1), 28. DOI: [https://doi.org/10.5334/labphon.19](https://doi.org/10.5334/labphon.19)*.
+3. Some additional acoustic measures are obtained from [VoiceSauce](http://www.phonetics.ucla.edu/voicesauce/), it would be great if you familiarised yourselves with what the measures reflect. 
+4. Install the following packages ahead of the meeting, by running the following code:
 
 
 ```{r}
