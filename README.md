@@ -30,8 +30,8 @@ requiredPackages = c('tidyverse', 'broom', 'knitr', 'corrplot', 'psycho',
 'PresenceAbsence', 'party', 'ranger', 'tidymodels', 'pROC', 'varImp', 
 'lattice', 'vip', 'doFuture', 'doRNG', 'parallelly')
 for(p in requiredPackages){
-  if(!require(p,character.only = TRUE)) install.packages(p)
-  library(p,character.only = TRUE)
+  if(!require(p, character.only = TRUE)) install.packages(p, dependencies = TRUE)
+  library(p, character.only = TRUE)
 }
 ```
 
