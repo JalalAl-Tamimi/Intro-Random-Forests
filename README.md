@@ -28,7 +28,7 @@ At the end, we introduce the [tidymodels](https://www.tidymodels.org/) and brief
 ```{r}
 requiredPackages = c('tidyverse', 'broom', 'knitr', 'corrplot', 'psycho', 
 'PresenceAbsence', 'party', 'ranger', 'tidymodels', 'pROC', 'varImp', 
-'lattice', 'vip', 'doFuture', 'parallelly')
+'lattice', 'vip', 'doFuture', 'doRNG', 'parallelly')
 for(p in requiredPackages){
   if(!require(p, character.only = TRUE)) install.packages(p, dependencies = TRUE)
   library(p, character.only = TRUE)
