@@ -6,8 +6,8 @@ This repo contains details of the material used in the workshop **Introduction t
 
 Here is the necessary material for the session:
 1. R Notebook
-2. [Dataset 1](https://github.com/JalalAl-Tamimi/Intro-Random-Forests/blob/main/grammatical.csv)
-3. [Dataset 2](https://github.com/JalalAl-Tamimi/Intro-Random-Forests/blob/main/dfPharV2.csv)
+2. [Dataset 1](data/grammatical.csv)
+3. [Dataset 2](data/dfPharV2.csv)
 
 In this workshop, we start by introducing very briefly predictive modelling as a classification tool. We (re-)introduce Generalised Linear Models (GLM) as a classification tool. We then present links between GLM and Signal Detection Theory and introduce the notions of accuracy, error, sensitivity, specificity, Area Under the Curve, and dprime. 
 
