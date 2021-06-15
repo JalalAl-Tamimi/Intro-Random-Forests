@@ -5,7 +5,7 @@
 This repo contains details of the material used in the workshop **Introduction to Random Forests** delivered to the group: *[Sounds of Language and Speech: Aarhus University's phonetics and phonology (and more) research group](https://soundsoflanguageandspeech.wordpress.com/)*, on 16th June 2021.
 
 Here is the necessary material for the session:
-1. R Notebook
+1. [R Notebook](data/Intro_RF.nb.html); [RMD File](data/Intro_RF.Rmd)
 2. [Dataset 1](data/grammatical.csv)
 3. [Dataset 2](data/dfPharV2.csv)
 
