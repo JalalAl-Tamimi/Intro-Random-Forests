@@ -4,6 +4,11 @@
 
 This repo contains details of the material used in the workshop **Introduction to Random Forests** delivered to the group: *[Sounds of Language and Speech: Aarhus University's phonetics and phonology (and more) research group](https://soundsoflanguageandspeech.wordpress.com/)*, on 16th June 2021.
 
+Here is the necessary material for the session:
+1. R Notebook
+2. [Dataset 1](https://github.com/JalalAl-Tamimi/Intro-Random-Forests/blob/main/grammatical.csv)
+3. [Dataset 2](https://github.com/JalalAl-Tamimi/Intro-Random-Forests/blob/main/dfPharV2.csv)
+
 In this workshop, we start by introducing very briefly predictive modelling as a classification tool. We (re-)introduce Generalised Linear Models (GLM) as a classification tool. We then present links between GLM and Signal Detection Theory and introduce the notions of accuracy, error, sensitivity, specificity, Area Under the Curve, and dprime. 
 
 We will discuss issues with GLM on correlated data and introduce Decision trees as a possible solution. We will grow our first tree using the Conditional-Inference Trees framework. We use real data from my current research on the *phonetic basis of the guttural natural class in Levantine Arabic* using acoustic predictors of formant bark-differences, and voice quality as obtained from [VoiceSauce](http://www.phonetics.ucla.edu/voicesauce/). We look at how to interpret the tree based on one predictor, before using multiple predictors to evaluate differences between groups. We report on accuracy, sensitivity, specificity, and AUC for each tree. We will try to mimic how Random Forests work based on decision trees, before introducing Random Forests. 
@@ -34,6 +39,4 @@ for(p in requiredPackages){
   library(p, character.only = TRUE)
 }
 ```
-
-Additional material will be added closer to the time.
 
