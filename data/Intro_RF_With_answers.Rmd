@@ -1,0 +1,1354 @@
+---
+title: "Introduction to Random Forests"
+author: 
+  name: "Jalal Al-Tamimi"
+  affiliation: "Newcastle University"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_notebook:
+    highlight: pygments
+    number_sections: yes
+    toc: true
+    toc_depth: 6
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+  
+---
+
+This notebook provides details of how to grow Random Forests for phonetic data. This is not exclusive to phonetic data and can be used for any other type of data. 
+
+We will start by looking at the basics of predictive modelling, by looking at logistic regression as a classification tool and use some notions from the Signal Detection Theory (accuracy, sensitivity, specificity, recall, dprime, AUC). We then look at some issues with logistic regression related to multicollinearity. We introduce then decision trees to understand how they work, before attempting to replicate how Random Forests work. We then grow our first Random Forests and try to capture as much information as possible from it. At the end, we look at the approach advocated by  `tidymodels`.
+At the end of the session, participants will be able to grow a Random Forest based on their own data. 
+
+
+
+# Loading packages 
+
+
+```{r warning=FALSE, message=FALSE, error=FALSE}
+## Use the code below to check if you have all required packages installed. If some are not installed already, the code below will install these. If you have all packages installed, then the second line of code will lad them.
+
+requiredPackages = c('tidyverse', 'broom', 'knitr', 'corrplot', 'psycho', 'PresenceAbsence', 'party', 'ranger', 'tidymodels', 'pROC', 'varImp', 'lattice', 'vip', 'doFuture', 'doRNG', 'parallelly')
+for(p in requiredPackages){
+  if(!require(p,character.only = TRUE)) install.packages(p)
+  library(p,character.only = TRUE)
+}
+
+
+```
+
+# Declare parallel computing
+
+`R` is a powerful software. It is designed by default to only use one core on your machine. As you know, any laptop/computer comes with at least two cores (if not more). Mine has 4 physical cores with multihtreading (i.e., a total of 8 logical cores). If I am to run a code that requires heavy computations, I will never ever use one core (as it will take ages to run). This is where the additional power of R is needed. 
+
+We can use any parallel computing package. I use the `doFuture` package as it is one of the best backend parallel computing packages. I am declaring parallel computing below using one core only, but on your machine, you can use all cores
+
+```{r}
+## To define parallel computing on your machine, use the package doFuture. The code below shows how you could define it on your machine.
+# #Declare parallel computing 
+## ncores <- availableCores()
+ncores <- 2
+cat(paste0("Number of cores available for model calculations set to ", ncores, "."))
+registerDoFuture()
+cl <- parallelly::makeClusterPSOCK(ncores)
+plan(cluster, workers = cl)
+ncores
+cl
+
+# below we register our random number generator. This will mostly be used within the tidymodels below. This allows replication of the results
+set.seed(123456)
+# below to suppress anywarnings from doFuture
+options(doFuture.rng.onMisuse = "ignore")
+```
+
+
+# Introduction
+
+The majority of research in phonetics and linguistics looks at traditional statistical techniques to evaluate group differences, using either frequentist or Bayesian frameworks. What is important in these frameworks is to assess whether a particular outcome can be explained by the potential differences that exist in a predictor. For example, we may want to examine if the differences observed in F2 frequency at the vowel midpoint can be explained by place of articulation, or age or gender. For this we use a linear regression (with or without mixed effects modelling) with the following formula: `lm(F2 ~ place + age + gender)`. 
+
+This approach can potentially explain the differences associated with the predictors, i.e., we evaluate their influence on the outcome. But let's ask the following question: can the observed differences on F2 frequency at the vowel midpoint be predictive of group differences associated with gender? Let's put it differently: can we predict gender differences based on F2 frequencies? What would happen in the future? This is where predictive modelling comes to the rescue.
+
+Predictive modelling is a statistical technique that uses either traditional or machine learning approaches to evaluate group difference and how they inform group separation. They can be used to predict changes either on the current data or in the future. If you build a predictive model based on pre-existing data, you can use the model's predictions to:
+
+1. Validate the results on the current set
+2. Predict results on new ranges (e.g., if you have results on age group 30-50, in theory, you could predict the patterns for age 20 or 70)
+3. Predict results on new data, either on the testing set or any new data you obtain in the future. 
+
+
+To understand this further, we will start with a simple Generalised Linear Model predicting a perception experiment on grammaticality judgement, before moving to Decision Trees and Random Forests. 
+
+# Generalised Linear Model
+
+Here we will look at an example when the outcome is binary. This simulated data is structured as follows. We asked one participant to listen to 165 sentences, and to judge whether these are "grammatical" or "ungrammatical". There were 105 sentences that were "grammatical" and 60 "ungrammatical". This fictitious example can apply in any other situation. Let's think Geography: 165 lands: 105 "flat" and 60 "non-flat", etc. This applies to any case where you need to "categorise" the outcome into two groups. 
+
+## Load and summaries
+
+Let's load in the data and do some basic summaries
+
+```{r}
+grammatical <- read_csv("grammatical.csv")
+grammatical
+str(grammatical)
+head(grammatical)
+```
+
+## Normal GLM
+
+Let's run a first GLM (Generalised Linear Model). A GLM uses a special family "binomial" as it assumes the outcome has a binomial distribution. In general, results from a Logistic Regression are close to what we get from SDT (see above).
+
+To run the results, we will change the reference level for both response and grammaticality. The basic assumption about GLM is that we start with our reference level being the "no" responses to the "ungrammatical" category. Any changes to this reference will be seen in the coefficients as "yes" responses to the "grammatical" category.
+
+### Model estimation and results
+
+The results below show the logodds for our model. 
+
+```{r}
+grammatical <- grammatical %>% 
+  mutate(response = factor(response, levels = c("no", "yes")),
+         grammaticality = factor(grammaticality, levels = c("ungrammatical", "grammatical")))
+
+grammatical %>% 
+  group_by(grammaticality, response) %>% 
+  table()
+
+mdl.glm <- grammatical %>% 
+  glm(response ~ grammaticality, data = ., family = binomial)
+summary(mdl.glm)
+
+tidy(mdl.glm) %>% 
+  select(term, estimate) %>% 
+  mutate(estimate = round(estimate, 3))
+# to only get the coefficients
+mycoef <- tidy(mdl.glm) %>% pull(estimate)
+```
+
+
+The results show that for one unit increase in the response (i.e., from no to yes), the logodds of being "grammatical" is increased by `r mycoef[2]` (the intercept shows that when the response is "no", the logodds are `r mycoef[1]`). The actual logodds for the response "yes" to grammatical is `r mycoef[1] + mycoef[2]` 
+
+
+### LogOdds to proportions
+
+If you want to talk about the percentage "accuracy" of our model, then we can transform our loggodds into proportions. This shows that the proportion of "grammatical" receiving a "yes" response increases by 95% 
+
+```{r}
+plogis(mycoef[1])
+plogis(mycoef[1] + mycoef[2])
+```
+
+### Plotting
+
+```{r}
+grammatical <- grammatical %>% 
+  mutate(prob = predict(mdl.glm, type = "response"))
+grammatical %>% 
+  ggplot(aes(x = as.numeric(grammaticality), y = prob)) +
+  geom_point() +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"), se = T) + 
+  theme_bw(base_size = 20) +
+  labs(y = "Probability", x = "") +
+  coord_cartesian(ylim = c(0, 1), xlim = c(2.05, 0.95), expand = FALSE) +
+  scale_x_discrete(limits = c("UGramm", "Gramm"))
+```
+
+## Accuracy and Signal Detection Theory
+
+### Rationale
+
+We are generally interested in performance, i.e., whether the we have "accurately" categorised the outcome or not and at the same time want to evaluate our biases in responses. When deciding on categories, we are usually biased in our selection. 
+
+Let's ask the question: How many of you have a Mac laptop and how many a Windows laptop? For those with a Mac, what was the main reason for choosing it? Are you biased in anyway by your decision? 
+
+If we go back to our grammatical example above, we want to evaluate if the participant was biased in anyway while responding. To correct for these biases, we use some variants from Signal Detection Theory to obtain the true estimates without being influenced by the biases. 
+
+### Running stats
+
+Let's do some stats on this 
+
+|  | Yes | No | Total |
+|----------------------------|--------------------|------------------|------------------|
+| Grammatical (Yes Actual) | TP = 100 | FN = 5 | (Yes Actual) 105 |
+| Ungrammatical (No Actual)  | FP = 10 | TN = 50 | (No Actual) 60 |
+| Total | (Yes Response) 110 | (No Response) 55 | 165 |
+
+
+TP = True Positive (Hit); FP = False Positive; FN = False Negative; TN = True Negative
+
+
+```{r}
+grammatical <- grammatical %>% 
+  mutate(response = factor(response, levels = c("yes", "no")),
+         grammaticality = factor(grammaticality, levels = c("grammatical", "ungrammatical")))
+
+## TP = True Positive (Hit); FP = False Positive; FN = False Negative; TN = True Negative
+
+
+TP <- nrow(grammatical %>% 
+             filter(grammaticality == "grammatical" &
+                      response == "yes"))
+FN <- nrow(grammatical %>% 
+             filter(grammaticality == "grammatical" &
+                      response == "no"))
+FP <- nrow(grammatical %>% 
+             filter(grammaticality == "ungrammatical" &
+                      response == "yes"))
+TN <- nrow(grammatical %>% 
+             filter(grammaticality == "ungrammatical" &
+                      response == "no"))
+TP
+FN
+FP
+TN
+
+Total <- nrow(grammatical)
+Total
+```
+
+#### Accuracy rate
+
+Accuracy is simply the sum of true positives and true negatives divided by the total. 
+
+```{r}
+(TP+TN)/Total
+```
+
+#### Error rate
+
+The error rate can be computed as 1-accuracy or sum of false positives and false negatives divided by the total.
+
+
+```{r}
+(FP+FN)/Total # error, also 1-accuracy
+```
+
+#### Specificity 
+
+Let us ask the following question: When the **stimulus = yes**, how many times the **response = yes**? 
+
+Here we quantify the true positive rate or specificity. 
+
+```{r}
+TP/(TP+FN) # also True Positive Rate or Specificity
+```
+
+#### False positive rate
+
+Let us ask the following question: When the **stimulus = no**, how many times the **response = yes**? 
+
+```{r}
+FP/(FP+TN) # False Positive Rate
+```
+
+#### Sensitivity 
+
+Sensitivity quantify the rejection rate and evaluates the sensitivity of the mode. 
+
+Let us ask the following question: When the **stimulus = no**, how many times the **response = no**?
+
+```{r}
+TN/(FP+TN) # True Negative Rate or Sensitivity 
+```
+
+#### Precision
+
+Let us ask the following question: When the subject responds `yes`, how many times is (s)he correct?
+
+```{r}
+TP/(TP+FP) # precision
+```
+
+#### DPrime and other SDT metrics
+
+We use the library `psycho` to obtain SDT metrics. 
+
+One of the most important metrics is `dprime`. This is usually used in perception experiments as it allows to take into account both sensitivity and specificity. This means, it allows to correct for biases in estimation. 
+
+The various metrics computed are:
+
+1. `dprime` or the sensitivity index. Between -6 to +6. positive = accurate detection; +6 = maximum detection; 0 no detection; negative = more noise (i.e., "no" responses) in the data
+2. `beta` or the bias criterion. Between 0-1: lower = increase in "yes" responses
+3. `Aprime` or estimate of discriminability. Between 0-1: 1 = good discrimination; 0 is at chance
+4. `bppd` or the "b prime prime d". Between -1 and 1: 0 = no bias, negative = tendency to respond "yes", positive = tendency to respond "no")
+5. `c` or the index of bias. equals to SD.
+
+For more details, see [link](https://www.r-bloggers.com/compute-signal-detection-theory-indices-with-r/amp/) 
+
+From our perspective here, the most important is d-prime (and the other sespetivity/specificity metrics). 
+This is modelling the difference between the rate of "True Positive" responses and "False Positive" responses in standard unit (or z-scores). The formula can be written as:
+
+`d' (d prime) = Z(True Positive Rate) - Z(False Positive Rate)`
+
+```{r}
+psycho::dprime(TP, FP, FN, TN, 
+               n_targets = TP+FN, 
+               n_distractors = FP+TN,
+               adjust = FALSE)
+
+```
+
+
+### GLM and d prime
+
+The values obtained here match those obtained from SDT. For d prime, the difference stems from the use of the logit variant of the Binomial family. By using a probit variant, one obtains the same values ([see here](https://stats.idre.ucla.edu/r/dae/probit-regression/) for more details). A probit variant models the z-score differences in the outcome and is evaluated in change in 1-standard unit. This is modelling the change from "ungrammatical" "no" responses into "grammatical" "yes" responses in z-scores. The same conceptual underpinnings of d-prime from Signal Detection Theory.
+
+```{r}
+## d prime
+psycho::dprime(TP, FP, FN, TN, 
+               n_targets = TP+FN, 
+               n_distractors = FP+TN,
+               adjust = FALSE)$dprime
+
+## GLM with probit
+coef(glm(response ~ grammaticality, data = grammatical, family = binomial(probit)))[2]
+
+```
+
+
+The logit variant of the GLM reports the coefficients for the True Positive Rate or Specificity; the probit variant reports on dprime, or the difference between the True Positive responses and the False Positive responses in standard units.
+
+
+### GLM as a classification tool
+
+The code below demonstrates the links between our GLM model and what we had obtained above from SDT. The predictions' table shows that our GLM was successful at obtaining prediction that are identical to our initial data setup. Look at the table here and the table above. Once we have created our table of outcome, we can compute percent correct, the specificity, the sensitivity, etc. This yields the actual value with the SD that is related to variations in responses. 
+
+```{r}
+mdl.glm.C <- grammatical %>% 
+  glm(response ~ grammaticality, data = ., family = binomial)
+pred.gramm <- predict(mdl.glm.C, type = "response")
+
+tbl.glm <- table(grammatical$response, pred.gramm)
+colnames(tbl.glm) <- c("grammatical", "ungrammatical")
+tbl.glm
+# from PresenceAbsence
+PresenceAbsence::pcc(tbl.glm)
+PresenceAbsence::specificity(tbl.glm)
+PresenceAbsence::sensitivity(tbl.glm)
+
+roc.gramm <- pROC::roc(grammatical$grammaticality, pred.gramm)
+roc.gramm
+pROC::plot.roc(roc.gramm, legacy.axes = TRUE)
+```
+
+If you look at the results from SDT above, these results are the same as
+the following
+
+Accuracy: (TP+TN)/Total (`r (TP+TN)/Total`) 
+
+True Positive Rate (or Specificity) TP/(TP+FN) (`r TP/(TP+FN)`)
+
+True Negative Rate (or Sensitivity) TN/(FP+TN) (`r TN/(FP+TN)`) 
+
+The Area Under the Curve (AUC) is usually used to assess the model's performance. As you see, we use the sensitivity on the y-axis and the inverse of specificity (1-specificity) on the x-axis. The AUC for this data is 1, i.e., perfect predictions and if you look at the AUC plot, it shows a perfect accuracy and detection. This is usually rare but can be obtained. Recall that this is a made-up dataset for demonstration only! 
+
+Now lets continue with a real dataset. 
+
+## Issues with GLM
+
+Let's look at a new dataset that comes from phonetic research. This dataset is from my current work on the `phonetic basis of the guttural natural class in Levantine Arabic`. Acoustic analyses were conducted on multiple portions of the VCV sequence, and we report here the averaged results on the first half of V2. Acoustic metrics were obtained via VoiceSauce: various acoustic metrics of supralaryngeal (bark difference) and laryngeal (voice quality via amplitude harmonic differences, noise, energy) were obtained. A total of 23 different acoustic metrics were obtained from 10 participants. Here, we use the data from the first two participants for demonstration purposes (one male and one female). The grouping factor of interest is context with two levels: `guttural` vs `non-guttural`. Gutturals include  uvular, pharyngealised and pharyngeal consonants; non-gutturals include coronal plain, velar and glottal consonants.  
+
+The aim of the study was to evaluate whether the combination of the acoustic metrics provides support for a difference between the two classes of gutturals vs non-gutturals. 
+
+### Load and summarise
+
+```{r}
+dfPharV2 <- read_csv("dfPharV2.csv")
+dfPharV2
+```
+
+
+### First predictive model
+
+#### Linear model
+
+Let's start by a simple linear model to evaluate relationship between a particular measure `Z2-Z1` and the context.
+
+```{r}
+dfPharV2 <- dfPharV2 %>% 
+  mutate(context = factor(context, levels = c("Non-Guttural", "Guttural")))
+
+dfPharV2 %>% 
+  lm(Z2mnZ1 ~ context, data = .) %>% 
+  summary()
+```
+
+
+What this result is telling us is that there is a statistically significant decrease in `Z2-Z1` in the guttural class when compared with the non-guttural (ignoring the fact that we need mixed modelling to evaluate the results). Now let's ask the question: with this linear model, can you predict percentage separation between the two classes? Are you able to tell if the differences observed between the two classes are meaningful? This is where we need to change our way of looking at the data. Let's look at GLM as a classification tool as above 
+
+
+#### GLM as a classification tool
+
+##### Model specification
+
+We run a GLM with `context` as our outcome, and `Z2-Z1` as our predictor. We want to evaluate whether the two classes can be separated when using the acoustic metric `Z2-Z1`. Context has two levels, and this will be considered as a binomial distribution. 
+
+
+```{r}
+mdl.glm.Z2mnZ1 <- dfPharV2 %>% 
+  glm(context ~ Z2mnZ1, data = ., family = binomial)
+summary(mdl.glm.Z2mnZ1)
+tidy(mdl.glm.Z2mnZ1) %>% 
+  select(term, estimate) %>% 
+  mutate(estimate = round(estimate, 3))
+# to only get the coefficients
+mycoef2 <- tidy(mdl.glm.Z2mnZ1) %>% pull(estimate)
+```
+
+##### Plogis
+
+The result above shows that when moving from the `non-guttural` (intercept), a unit increase (i.e., `guttural`) yields a statistically significant decrease in the logodds associated with `Z2-Z1`. We can evaluate this further from a classification point of view, using `plogis`.
+
+
+```{r}
+# non-guttural
+plogis(mycoef2[1])
+#guttural
+plogis(mycoef2[1] + mycoef2[2])
+```
+
+
+This shows that `Z2-Z1` is able to explain the difference in the `guttural` class with an accuracy of 59%. Let's continue with this model further.
+
+##### Model predictions
+
+As above, we obtain predictions from the model. Because we are using a numeric predictor, we need to assign a threshold for the predict function. The threshold can be thought of as telling the predict function to assign any predictions lower than 50% to one group, and any higher to another. 
+
+```{r}
+pred.glm.Z2mnZ1 <- predict(mdl.glm.Z2mnZ1, type = "response")>0.5
+
+tbl.glm.Z2mnZ1 <- table(pred.glm.Z2mnZ1, dfPharV2$context)
+rownames(tbl.glm.Z2mnZ1) <- c("Non-Guttural", "Guttural")
+tbl.glm.Z2mnZ1
+# from PresenceAbsence
+PresenceAbsence::pcc(tbl.glm.Z2mnZ1)
+PresenceAbsence::specificity(tbl.glm.Z2mnZ1)
+PresenceAbsence::sensitivity(tbl.glm.Z2mnZ1)
+
+roc.glm.Z2mnZ1 <- pROC::roc(dfPharV2$context, as.numeric(pred.glm.Z2mnZ1))
+roc.glm.Z2mnZ1
+pROC::plot.roc(roc.glm.Z2mnZ1, legacy.axes = TRUE)
+```
+
+
+The model above was able to explain the difference between the two classes with an accuracy of 67.7%. It has a slightly low specificity (0.58) to detect `gutturals`, but a flighty high sensitivity (0.75) to reject the `non-gutturals`. Looking at the confusion matrix, we observe that both groups were relatively accurately identified, but we have relatively large errors (or confusions). The AUC is at 0.67, which is not too high. 
+
+Let's continue with GLM to evaluate it further. We start by running a correlation test to evaluate issues with GLM.
+
+### Correlation tests
+
+```{r}
+corr <- cor(dfPharV2[-1])
+col <- colorRampPalette(c("red", "white", "blue"))(20)
+corrplot(corr, type = "upper", order = "hclust", col = col)
+```
+
+
+The correlation plot above shows which predictors are correlated with each other (positively or negatively). They are organised by hierarchical clustering that identifies clusters of predictors correlated with each other. 
+
+#### Correlation tests
+
+
+Below, we look at two predictors that are correlated with each other:  `Z3-Z2` (F3-F2 in Bark) and `A2*-A3*` (normalised amplitude differences between harmonics closest to F2 and F3). The results of the correlation test shows the two predictors to negatively correlate with each other at a rate of -0.87.
+
+
+
+```{r}
+cor.test(dfPharV2$Z3mnZ2, dfPharV2$A2mnA3)
+```
+
+
+#### Plots to visualise the data
+
+```{r}
+dfPharV2 %>% 
+  ggplot(aes(x = context, y = Z3mnZ2)) + 
+  geom_boxplot()
+
+dfPharV2 %>% 
+  ggplot(aes(x = context, y = A2mnA3)) + 
+  geom_boxplot()  
+```
+
+
+
+As we see from the plot, `Z3-Z2` is higher in the guttural, whereas  `A2*-A3*` is lower. 
+
+#### GLM on correlated data
+
+
+Let's run a logistic regression as a classification tool to predict the  context as a function of each predictor separately and then combined. 
+
+```{r}
+dfPharV2 %>% glm(context ~ Z3mnZ2, data = ., family = binomial) %>% summary()
+
+dfPharV2 %>% glm(context ~ A2mnA3, data = ., family = binomial) %>% summary()
+
+dfPharV2 %>% glm(context ~ Z3mnZ2 + A2mnA3, data = ., family = binomial) %>% summary()
+```
+
+
+
+When looking at the three models above, it is clear that the logodd value for `Z3-Z2` is positive, whereas it is negative for `A2*-A3*`. When adding the two predictors together, there is clear **suppression**: the coefficients for both predictors are now negative. The relatively high correlation between the predictors affected the coefficients and changed the direction of the slope; collinearity is harmful for any regression analysis. 
+
+In the following, we introduce decision trees followed by Random Forest as a way to deal with collinearity and to make sense of multivariate predictors. 
+
+# Decision Trees 
+
+Decision trees are a statistical tool that uses the combination of predictors to identify patterns in the data and provides classification accuracy for the model. 
+
+The decision tree used is based on `conditional inference trees` that looks at each predictor and splits the data into multiple nodes (branches) through recursive partitioning in a `tree-structured regression model`. Each node is also split into leaves (difference between levels of outcome).
+
+Decision trees via `ctree` does the following: 
+
+1. Test global null hypothesis of independence between predictors and outcome. 
+2. Select the predictor with the strongest association with the outcome measured based on a multiplicity adjusted p-values with Bonferroni correction
+3. Implement a binary split in the selected input variable. 
+4. Recursively repeat steps 1), 2). and 3).
+
+Let's see this in an example using the same dataset. To understand what the decision tree is doing, we will dissect it, by creating one tree with one predictor and move to the next.
+
+
+## Individual trees
+
+### Tree 1
+
+```{r}
+## from the package party
+set.seed(123456)
+tree1 <- dfPharV2 %>% 
+  ctree(
+    context ~ Z2mnZ1, 
+    data = .)
+print(tree1)
+plot(tree1, main = "Conditional Inference Tree ")
+```
+
+
+How to interpret this figure? Let's look at mean values and a plot for this variable. This is the difference between `F2` and `F1` using the bark scale. Because gutturals are produced within the pharynx (regardless of where), the predictions is that a high `F1` and a low `F2` will be the acoustic correlates related to this constriction location. The closeness between these formants yields a lower `Z2-Z1`. Hence, the prediction is as follow: the smaller the difference, the more pharyngeal-like constriction these consonants have (all else being equal!). Let's compute the mean/median and plot the difference between the two contexts.
+
+```{r}
+dfPharV2 %>% 
+  group_by(context) %>% 
+  summarise(mean = mean(Z2mnZ1),
+            median = median(Z2mnZ1), 
+            count = n())
+
+dfPharV2 %>% 
+  ggplot(aes(x = context, y = Z2mnZ1)) + 
+  geom_boxplot()  
+```
+
+
+The table above reports the mean and median of `Z2-Z1` for both levels of context and the plots show the difference between the two. We have a total of 180 cases in the `guttural`, and 222 in the `non-guttural`. 
+When considering the conditional inference tree output, various splits were obtained. 
+The first is any value higher than 9.55 being assigned to the `non-guttural` class (around 98% of 75 cases)
+Then, with anything lower than 9.55, a second split was obtained. A threshold of 6.78: higher assigned to `guttural` (around 98% of 64 cases), lower, were split again with a threshold of 4 Bark. A third split was obtained: values lower of equal to 4 Bark are assigned to the `guttural` (around 70% of 157 cases) and values higher than 4 Barks assigned to the `non-guttural` (around 90% of 106 cases).
+
+Dissecting the tree like this allows interpretation of the output. In this example, this is quite a complex case and `ctree` allowed to fine tune the different patterns seen with 
+Now let's look at the full dataset to make sense of the combination of predictors to the difference. 
+
+## Model 1
+
+### Model specification
+
+```{r}
+set.seed(123456)
+fit <- dfPharV2  %>% 
+  ctree(
+    context ~ ., 
+    data = .)
+print(fit)
+plot(fit, main = "Conditional Inference Tree")
+```
+
+
+How to interpret this complex decision tree? 
+
+Let's obtain the median value for each predictor grouped by context. Discuss some of the patterns. 
+
+```{r}
+dfPharV2 %>% 
+  group_by(context) %>% 
+  summarize_all(list(mean = mean))
+```
+
+
+
+We started with `context` as our outcome, and all 23 acoustic measures as predictors. A total of 8 terminal nodes were identified with multiple binary splits in their leaves, allowing separation of the two categories. Looking specifically at the output, we observe a few things.
+
+The first node was based on `A2*-A3*`, detecting a difference between non-gutturals and gutturals. For the first binary split, a threshold of -13.78 Bark was used (mean non guttural = -7.86; mean guttural = -14.58), then for values lower of equal to this threshold, a second split was performed using `Z4-Z3` (mean non guttural = 1.67; mean guttural = 1.43) with any value smaller and equal to 1.59, then another binary split using `H2*-H4*`, etc...
+
+Once done, the `ctree` provides multiple binary splits into guttural or non-guttural. 
+
+Any possible issues/interesting patterns you can identify? Look at the interactions between predictors. 
+
+
+### Predictions from the full model
+
+Let's obtain some predictions from the model and evaluate how successful it is in dealing with the data. 
+
+```{r}
+set.seed(123456)
+pred.ctree <- predict(fit)
+tbl.ctree <- table(pred.ctree, dfPharV2$context)
+tbl.ctree
+PresenceAbsence::pcc(tbl.ctree)
+PresenceAbsence::specificity(tbl.ctree)
+PresenceAbsence::sensitivity(tbl.ctree)
+
+roc.ctree <- pROC::roc(dfPharV2$context, as.numeric(pred.ctree))
+roc.ctree
+pROC::plot.roc(roc.ctree, legacy.axes = TRUE)
+```
+
+This full model has a classification accuracy of 82.8%.This is not bad!! It has a relatively moderate specificity at 0.77 (at detecting the gutturals) but a high sensitivity at 0.87 (at detecting the non-gutturals). The ROC curve shows the relationship between the two with an AUC of 0.823
+
+
+## Up to you..
+
+Try and fit two decision trees, the first on bark difference metrics and the second on voice quality metrics. Use the `tidyverse` approach to 1) select predictors and 2) to run ctree. 
+
+Answer below!!
+
+```{r}
+# formants
+```
+
+
+
+
+
+```{r}
+# Voice quality
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# create two datasets
+dfForm <- dfPharV2  %>% 
+  select(., "context", "Z1mnZ0", "Z2mnZ1", "Z3mnZ2", "Z4mnZ3")
+
+dfVQ <- dfPharV2  %>% 
+  select(., "context", c(2:16, 21:24))
+
+
+set.seed(123456)
+# Formants
+fitForm <- dfForm  %>% 
+  ctree(
+    context ~ ., 
+    data = .)
+print(fitForm)
+plot(fitForm)
+# predictions
+pred.ctree.Form <- predict(fitForm)
+tbl.ctree.Form <- table(pred.ctree.Form, dfForm$context)
+tbl.ctree.Form
+PresenceAbsence::pcc(tbl.ctree.Form)
+PresenceAbsence::specificity(tbl.ctree.Form)
+PresenceAbsence::sensitivity(tbl.ctree.Form)
+roc.ctree.Form <- pROC::roc(dfForm$context, as.numeric(pred.ctree.Form))
+roc.ctree.Form
+pROC::plot.roc(roc.ctree.Form, legacy.axes = TRUE)
+
+set.seed(123456)
+# VQ
+fitVQ <- dfVQ  %>% 
+  ctree(
+    context ~ ., 
+    data = .)
+print(fitVQ)
+plot(fitVQ)
+# predictions
+pred.ctree.VQ <- predict(fitVQ)
+tbl.ctree.VQ <- table(pred.ctree.VQ, dfVQ$context)
+tbl.ctree.VQ
+PresenceAbsence::pcc(tbl.ctree.VQ)
+PresenceAbsence::specificity(tbl.ctree.VQ)
+PresenceAbsence::sensitivity(tbl.ctree.VQ)
+roc.ctree.VQ <- pROC::roc(dfVQ$context, as.numeric(pred.ctree.VQ))
+roc.ctree.VQ
+pROC::plot.roc(roc.ctree.VQ, legacy.axes = TRUE)
+```
+
+
+
+
+
+## Random selection
+
+One important issue is that the trees we grew above are biased. They are based on the full dataset, which means they are very likely to overfit the data. We did not add any random selection and we only grew one tree each time. If you think about it, is it possible that we obtained such results simply by chance? 
+
+What if we add some randomness in the process of creating a conditional inference tree?
+
+
+We change a small option in `ctree` to allow for random selection of variables, to mimic what Random Forests will do. We use `controls` to specify `mtry = 5`, which is the rounded square root of number of predictors. 
+
+
+### Model 2
+
+```{r}
+set.seed(123456)
+fit1 <- dfPharV2  %>% 
+  ctree(
+    context ~ ., 
+    data = .,
+    controls = ctree_control(mtry = 5))
+plot(fit1, main = "Conditional Inference Tree")
+pred.ctree1 <- predict(fit1)
+tbl.ctree1 <- table(pred.ctree1, dfPharV2$context)
+tbl.ctree1
+PresenceAbsence::pcc(tbl.ctree1)
+PresenceAbsence::specificity(tbl.ctree1)
+PresenceAbsence::sensitivity(tbl.ctree1)
+
+roc.ctree1 <- pROC::roc(dfPharV2$context, as.numeric(pred.ctree1))
+roc.ctree1
+pROC::plot.roc(roc.ctree1, legacy.axes = TRUE)
+```
+
+
+Can you compare results between you and discuss what is going on? 
+
+When adding one random selection process to our `ctree`, we allow it to obtain more robust predictions. We could even go further and grow multiple small trees with a portion of datapoints (e.g., 100 rows, 200 rows). When doing these multiple random selections, you are growing multiple trees that are decorrelated from each other. These become independent trees and one can combine the results of these trees to come with clear predictions. 
+
+This is how Random Forests work. You would start from a dataset, then grow multiple trees, vary number of observations used (nrow), and number of predictors used (mtry), adjust branches, and depth of nodes and at the end, combine the results in a forest. You can also run permutation tests to evaluate contributions of each predictor to the outcome. This is the beauty of Random Forests. They do all of these steps automatically at once for you! 
+
+
+# Random Forests
+
+As their name indicate, a Random Forest is a forest of trees implemented through bagging ensemble algorithms. Each tree has multiple branches (nodes), and will provide predictions based on recursive partitioning of the data. Then using the predictions from the multiple grown trees, Random Forests will create `averaged` predictions and come up with prediction accuracy, etc. 
+
+There are multiple packages that one can use to grow Random Forests:
+
+1. `randomForest`: The original implementation of Random Forests.
+2. `party` and `partykit`: using conditional inference trees as base learners
+3. `ranger`: a reimplementation of Random Forests; faster and more flexible than original implementation
+
+The first implementation of Random Forests is widely used in research. One of the issues in this first implementation is that it favoured specific types of predictors (e.g., categorical predictors, predictors with multiple cut-offs, etc). Random Forests grown via Conditional Inference Trees as implemented in `party` guard against this bias, but they are computationally demanding. Random Forests grown via permutation tests as implemented in `ranger` speed up the computations and can mimic the unbiased selection process. 
+
+## Party
+
+Random Forests grown via conditional inference trees, are different from the original implementation. They offer an unbiased selection process that guards against overfitting of the data. There are various points we need to consider in growing the forest, including number of trees and predictors to use each time. Let us run our first Random Forest via conditional inference trees. To make sure the code runs as fast as it can, we use a very low number of trees: only 100 It is well known that the more trees you grow, the more confidence you have in the results, as model estimation will be more stable. In this example, I would easily go with 500 trees..
+
+### Model specification
+
+To grow the forest, we use the function `cforest`. We use all of the dataset for the moment. We need to specify a few options within controls: 
+
+1. `ntree = 100` = number of trees to grow. Default = 500.
+2. `mtry = round(sqrt(23))`: number of predictors to use each time. Default is 5, but specifying it is advised to account for the structure of the data
+
+By default, `cforest_unbiased` has two additional important options that are used for an unbiased selection process. **WARNING**: you should not change these unless you know what you are doing. Also, by default, the data are split into a training and a testing set. The training is equal to 2/3s of the data; the testing is 1/3.
+
+1. `replace = FALSE` = Use subsampling with or without replacement. Default is `FALSE`, i.e., use subsets of the data without replacing these.  
+2. `fraction = 0.632` = Use 63.2% of the data in each split. 
+
+
+```{r}
+set.seed(123456)
+mdl.cforest <- dfPharV2 %>% 
+  cforest(context ~ ., data = ., 
+          controls = cforest_unbiased(ntree = 100, 
+                                      mtry = round(sqrt(23))))
+```
+
+
+### Predictions
+
+To obtain predictions from the model, we use the `predict` function and add `OOB = TRUE`. This uses the out-of-bag sample (i.e., 1/3 of the data). 
+
+```{r}
+set.seed(123456)
+pred.cforest <- predict(mdl.cforest, OOB = TRUE)
+tbl.cforest <- table(pred.cforest, dfPharV2$context)
+tbl.cforest
+PresenceAbsence::pcc(tbl.cforest)
+PresenceAbsence::specificity(tbl.cforest)
+PresenceAbsence::sensitivity(tbl.cforest)
+
+roc.cforest <- pROC::roc(dfPharV2$context, as.numeric(pred.cforest))
+roc.cforest
+pROC::plot.roc(roc.cforest, legacy.axes = TRUE)
+```
+
+Compared with the 82.8% classification accuracy we obtained using `ctree` using our full dataset above (model 1), here we obtain 85.5% with an 2.7% increase. Compared with the 67.4% from model 2 from `ctree` with random selection of predictors, we have an 18.1% increase in classification accuracy!
+
+We could test whether there is statistically significant difference between our `ctree` and `cforest` models. Using the ROC curves, the `roc.test` conducts a non-parametric Z test of significance on the correlated ROC curves. The results show a statistically significant improvement using the `cforest` model. This is normal because we are growing 100 different trees, with random selection of both predictors and samples and provide an `averaged` prediction. 
+
+```{r}
+pROC::roc.test(roc.ctree, roc.cforest)
+pROC::roc.test(roc.ctree1, roc.cforest)
+```
+
+
+### Variable Importance Scores
+
+One important feature in `ctree` was to show which predictor was used first is splitting the data, which was then followed by the other predictors. We use a similar functionality with `cforest` to obtain variable importance scores to pinpoint `strong` and `weak` predictors. 
+
+There are two ways to obtain this:
+
+1. Simple permutation tests (conditional = FALSE)
+2. Conditional permutation tests (conditional = TRUE)
+
+The former is generally comparable across packages and provides a normal permutation test; the latter runs a permutation test on a grid defined by the correlation matrix and corrects for possible collinearity. This is similar to a regression analysis, but looks at both main effects and interactions. 
+
+You could use the normal `varimp` as implemented in `party`. This uses mean decrease in accuracy scores. We will use variable importance scores via an AUC based permutation tests as this uses both accuracy and errors in the model, using `varImpAUC` from the `varImp` package.
+
+**DANGER ZONE**: using conditional permutation test requires a lot of RAMs, unless you have access to a cluster, and/or a lot of RAMs, do not attempt running it. We will run the non-conditional version here for demonstration.
+
+
+```{r}
+set.seed(123456)
+VarImp.cforest <- varImp::varImpAUC(mdl.cforest, conditional = FALSE)
+lattice::barchart(sort(VarImp.cforest))
+```
+
+
+The Variable Importance Scores via non-conditional permutation tests showed that `A2*-A3*` (i.e., energy in mid-high frequencies around F2 and F3) is the most important variable at explaining the difference between gutturals and non-gutturals, followed by `Z4-Z3` (pharyngeal constriction), `H1*-A3*` (energy in mid-high frequency component), `Z2-Z1` (degree of compactness), `Z3-Z2` (spectral divergence), `H1*-A2` (energy in mid frequency component) and `Z1-Z0` (degree of openness). All other predictors contribute to the contrast but to varying degrees (from `H1*-H2*` to `H1*-A1*`). The last 5 predictors are the least important and and the CPP has a 0 mean decrease in accuracy and can even be ignored. 
+
+
+### Conclusion
+
+The `party` package is powerful at growing Random Forests via conditional Inference trees, but is computationally prohibitive when increasing number of trees and using conditional permutation tests of variable importance scores. We look next at the package `ranger` due to its speed in computation and flexibility. 
+
+## Ranger
+
+The `ranger` package proposes a reimplementation of the original Random Forests algorithms, written in C++ and allows for parallel computing. It offers more flexibility in terms of model specification. 
+
+### Model specification
+
+In the model below specification below, there are already a few options we are familiar with, with additional ones described below:
+
+1. `num.tree` = Number of trees to grow. We use the default value
+2. `mtry` = Number of predictors to use. Default = `floor(sqrt(Variables))`. For compatibility with `party`, we use `round(sqrt(23))`
+3. `replace = FALSE` = Use subsampling with or without replacement. Default `replace = TRUE`, i.e., is **with** replacement. 
+4. `sample.fraction = 0.632` = Use 63.2% of the data in each split. Default is full dataset, i.e., `sample.fraction = 1`
+5. `importance = "permutation"` = Compute variable importance scores via permutation tests
+6. `scale.permutation.importance = FALSE` = whether to scale variable importance scores to be out of 100%. Default is TRUE. This is likely to introduce biases in variable importance estimation. 
+7. `splitrule = "extratrees"` = rule used for splitting trees. 
+8. `num.threads` = allow for parallel computing. Here we only specify 1 thread, but can use all thread on your computer (or cluster).
+
+
+We use options 2-7 to make sure we have an unbiased selection process with `ranger`. You can try on your own running the model below by using the defaults to see how the rate of classification increases more, but with the caveat that it has a biased selection process. 
+
+```{r}
+set.seed(123456)
+mdl.ranger <- dfPharV2 %>% 
+  ranger(context ~ ., data = ., num.trees = 500, mtry = round(sqrt(23)),
+         replace = FALSE, sample.fraction = 0.632, 
+         importance = "permutation", scale.permutation.importance = FALSE,
+         splitrule = "extratrees", num.threads = 1)
+mdl.ranger
+```
+
+
+Results of our Random Forest shows an OOB (Out-Of-Bag) error rate of 8.2%, i.e., an accuracy of 91.8%.
+
+### Going further
+
+Unfortunately, when growing a tree with `ranger`, we cannot use predictions from the OOB sample as there is no comparable options to do so on the predictions. We need to hard-code this. We split the data into a training and a testing sets. The training will be on 2/3s of the data; the testing is on the remaining 1/3. 
+
+#### Create a training and a testing set
+
+```{r}
+set.seed(123456)
+train.idx <- sample(nrow(dfPharV2), 2/3 * nrow(dfPharV2))
+gutt.train <- dfPharV2[train.idx, ]
+gutt.test <- dfPharV2[-train.idx, ]
+```
+
+
+#### Model specification
+
+We use the same model specification as above, except from using the training set and saving the forest (with `write.forest = TRUE`).
+
+```{r}
+set.seed(123456)
+mdl.ranger2 <- gutt.train %>% 
+  ranger(context ~ ., data = ., num.trees = 500, mtry = round(sqrt(23)),
+         replace = FALSE, sample.fraction = 0.632, 
+         importance = "permutation", scale.permutation.importance = FALSE,
+         splitrule = "extratrees", num.threads = 1, write.forest = TRUE)
+mdl.ranger2
+```
+
+With the training set, we have an OOB error rate of 9.3%; i.e., an accuracy rate of 90.7%.
+
+#### Predictions
+ 
+For the predictions, we use the testing set as a validation set. This is to be considered as a true reflection of the model. This is unseen data not used in the training set.
+
+
+```{r}
+set.seed(123456)
+pred.ranger2 <- predict(mdl.ranger2, data = gutt.test)
+tbl.ranger2 <- table(pred.ranger2$predictions, gutt.test$context)
+tbl.ranger2
+PresenceAbsence::pcc(tbl.ranger2)
+PresenceAbsence::specificity(tbl.ranger2)
+PresenceAbsence::sensitivity(tbl.ranger2)
+
+roc.ranger <- pROC::roc(gutt.test$context, as.numeric(pred.ranger2$predictions))
+roc.ranger
+pROC::plot.roc(roc.ranger, legacy.axes = TRUE)
+```
+
+
+The classification rate based on the testing set is 86.6%. This is comparable to the one we obtained with `cforest`. The changes in the settings allow for similarities in the predictions obtained from both `party` and `ranger`. 
+
+#### Variable Importance Scores
+
+##### Default
+
+For the variable importance scores, we obtain them from either the training set or the full model above.
+
+
+```{r}
+set.seed(123456)
+lattice::barchart(sort(mdl.ranger2$variable.importance), main = "Variable Importance scores - training set")
+lattice::barchart(sort(mdl.ranger$variable.importance), main = "Variable Importance scores - full set")
+```
+
+
+There are similarities between `cforest` and `ranger`, with minor differences. `Z2-Z1` is the best predictor at explaining the differences between gutturals and non-gutturals with `ranger` followed by `Z3-Z2` and then `A2*-A3*`, (reverse with `cforest`!). The order of the additional predictors is sightly different between the two models. This is expected as the `cforest` model only used 100 trees, whereas the `ranger` model used 500 trees.
+
+
+A clear difference between the packages `party` and `ranger` is that the former allows for conditional permutation tests for variable importance scores; this is absent from `ranger`. However, there is a debate in the literature on whether correlated data are harmful within Random Forests. It is clear that how Random Forests work, i.e., the randomness in the selection process in number of data points, predictors, splitting rules, etc. allow the trees to be decorrelated from each other. Hence, the conditional permutation tests may not be required. But what they offer is to condition variable importance scores on each other (based on correlation tests) to mimic what a multiple regression analysis does (but without suffering from suppression!). Strong predictors will show major contribution, while weak ones will be squashed giving them extremely low (or even negative) scores. Within `ranger`, it is possible to evaluate this by estimating p values associated with each variable importance.We use the `altman` method. See documentation for more details. 
+
+**DANGER ZONE**: This requires heavy computations. Use with all cores on your machine or in the cluster. Recommendations are to use a minimum of 100 permutations or more, i.e., `num.permutations = 100`. Here, we only use 20 to show the output.
+
+##### With p values
+
+```{r}
+set.seed(123456)
+VarImp.pval <- importance_pvalues(mdl.ranger2, method = "altmann",
+                                  num.permutations = 20, 
+                                  formula = context ~ ., data = gutt.train,
+                                  num.threads = 2)
+VarImp.pval
+```
+
+
+Of course, the output above shows variable p values. The lowest is at 0.048 for all predictors; one at 0.14 for CPP. Recall that CPP received the lowest variable importance score within `ranger` and `cforest`. If you increase permutations to 100 or 200, you will get more confidence in your results and can report the p values
+
+
+
+## Up to you!
+
+Following what we have done above with decision trees, run a Random Forest either with `party` or `ranger` on formants or voice quality. Discuss with your peers the results and we can discuss any issues.. You need to 1) select variables and 2) run the code. Don't forget, you can simply copy and paste the code, but it is best to try to recall the call functions. 
+
+
+Answer below!!
+
+```{r}
+# formants
+```
+
+
+
+
+
+```{r}
+# Voice quality
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+set.seed(123456)
+# With `party`
+## formants
+mdl.cforest.Form <- dfForm %>% 
+  cforest(context ~ ., data = ., 
+          controls = cforest_unbiased(ntree = 100, 
+                                      mtry = round(sqrt(4))))
+pred.cforest.Form <- predict(mdl.cforest.Form, OOB = TRUE)
+tbl.cforest.Form <- table(pred.cforest.Form, dfForm$context)
+tbl.cforest.Form
+PresenceAbsence::pcc(tbl.cforest.Form)
+PresenceAbsence::specificity(tbl.cforest.Form)
+PresenceAbsence::sensitivity(tbl.cforest.Form)
+roc.cforest.Form <- pROC::roc(dfForm$context, as.numeric(pred.cforest.Form))
+roc.cforest.Form
+pROC::plot.roc(roc.cforest.Form, legacy.axes = TRUE)
+
+set.seed(123456)
+## VQ
+mdl.cforest.VQ <- dfVQ %>% 
+  cforest(context ~ ., data = ., 
+          controls = cforest_unbiased(ntree = 100, 
+                                      mtry = round(sqrt(19))))
+pred.cforest.VQ <- predict(mdl.cforest.VQ, OOB = TRUE)
+tbl.cforest.VQ <- table(pred.cforest.VQ, dfVQ$context)
+tbl.cforest.VQ
+PresenceAbsence::pcc(tbl.cforest.VQ)
+PresenceAbsence::specificity(tbl.cforest.VQ)
+PresenceAbsence::sensitivity(tbl.cforest.VQ)
+roc.cforest.VQ <- pROC::roc(dfVQ$context, as.numeric(pred.cforest.VQ))
+roc.cforest.VQ
+pROC::plot.roc(roc.cforest.VQ, legacy.axes = TRUE)
+
+```
+
+
+
+
+
+```{r}
+set.seed(123456)
+# With `ranger`
+## formants
+### training set
+train.idx <- sample(nrow(dfForm), 2/3 * nrow(dfForm))
+gutt.train <- dfForm[train.idx, ]
+gutt.test <- dfForm[-train.idx, ]
+### model
+mdl.ranger.Form <- gutt.train %>% 
+  ranger(context ~ ., data = ., num.trees = 500, mtry = round(sqrt(4)),
+         replace = FALSE, sample.fraction = 0.632, 
+         importance = "permutation", scale.permutation.importance = FALSE,
+         splitrule = "extratrees", num.threads = 1, write.forest = TRUE)
+
+### predictions
+pred.ranger.Form <- predict(mdl.ranger.Form, data = gutt.test)
+tbl.ranger.Form <- table(pred.ranger.Form$predictions, gutt.test$context)
+tbl.ranger.Form
+PresenceAbsence::pcc(tbl.ranger.Form)
+PresenceAbsence::specificity(tbl.ranger.Form)
+PresenceAbsence::sensitivity(tbl.ranger.Form)
+roc.ranger.Form <- pROC::roc(gutt.test$context, as.numeric(pred.ranger.Form$predictions))
+roc.ranger.Form
+pROC::plot.roc(roc.ranger.Form, legacy.axes = TRUE)
+
+set.seed(123456)
+## VQ
+## training sets
+train.idx <- sample(nrow(dfVQ), 2/3 * nrow(dfVQ))
+gutt.train <- dfVQ[train.idx, ]
+gutt.test <- dfVQ[-train.idx, ]
+## model
+mdl.ranger.VQ <- gutt.train %>% 
+  ranger(context ~ ., data = ., num.trees = 500, mtry = round(sqrt(19)),
+         replace = FALSE, sample.fraction = 0.632, 
+         importance = "permutation", scale.permutation.importance = FALSE,
+         splitrule = "extratrees", num.threads = 1, write.forest = TRUE)
+
+## predictions
+pred.ranger.VQ <- predict(mdl.ranger.VQ, data = gutt.test)
+tbl.ranger.VQ <- table(pred.ranger.VQ$predictions, gutt.test$context)
+tbl.ranger.VQ
+PresenceAbsence::pcc(tbl.ranger.VQ)
+PresenceAbsence::specificity(tbl.ranger.VQ)
+PresenceAbsence::sensitivity(tbl.ranger.VQ)
+roc.ranger.VQ <- pROC::roc(gutt.test$context, as.numeric(pred.ranger.VQ$predictions))
+roc.ranger.VQ
+pROC::plot.roc(roc.ranger.VQ, legacy.axes = TRUE)
+
+```
+
+
+
+In the next part, we look at the `tidymodels` and introduce their philosophy. 
+
+# Random forests with Tidymodels
+
+The `tidymodels` are a bundle of packages used to streamline and simplify the use of machine learning. The `tidymodels` are not restricted to Random Forests, and you can even use them to run simple linear models, logistic regressions, PCA, Random Forests, Deep Learning, etc.
+
+The `tidymodels`' philosophy is to separate data processing on the training and testing sets, and use of a workflow. Below, is an full example of how one can run Random Forests with via `ranger` using the `tidymodels`.
+
+## Training and testing sets
+
+We start by creating a training and a testing set using the function `initial_split`. Using `strata = context` allows the model to split the data taking into account its structure and splits the data according to proportions of each group. 
+
+```{r}
+set.seed(123456)
+train_test_split <-
+  initial_split(
+    data = dfPharV2,
+    strata = "context",
+    prop = 0.667) 
+train_test_split
+train_tbl <- train_test_split %>% training() 
+test_tbl  <- train_test_split %>% testing()
+```
+
+
+## Set for cross-validation
+
+We can (if we want to), create a 10-folds cross-validation on the training set. This allows to fine tune the training by obtaining the forest with the highest accuracy. This is a clear difference with `ranger`. While it is not impossible to hard code that, `tidymodels` simplify it for us!!
+
+```{r}
+set.seed(123456)
+train_cv <- vfold_cv(train_tbl, v = 10, strata = "context")
+```
+
+## Model Specification
+
+Within the model specification, we need to specify multiple options:
+
+1. A `recipe`: This is the recipe and is related to any data processing one wants to apply on the data.
+2. An `engine`: We need to specify the `engine` to use. Here we want to run a Random Forest.
+3. A `tuning`: Here we can tune our engine
+4. A `workflow`: here we specify the various steps of the workflow
+
+
+### Recipe
+
+When defining the recipe, you need to think of the type of "transformations" you will apply to your data. 
+
+1. Z-scoring is the first thing that comes to mind. When you z-score the data, you are allowing all strong and weak predictors to be considered equally by the model. This is important as some of our predictors have very large differences related to the levels of context and have different measurement scales. We could have applied it above, but we need to make sure to apply it separately on both training and testing sets (otherwise, our model suffers from data leakage)
+2. If you have any missing data, you can use central imputations to fill in missing data (random forests do not like missing data, though they can work with them). 
+3. You can apply PCA on all your predictors to remove collinearity before running random forests. This is a great option to consider, but adds more complexity to your model. 
+4.Finally, if you have categorical predictors, you can transform them into dummy variables using `step_dummy()`: 1s and 2s for binary; or use one-hot-encoding `step_dummy(predictor, one_hot = TRUE)`
+
+See documentations of `tidymodels` for what you can apply!!
+
+
+```{r}
+set.seed(123456)
+recipe <-  
+  train_tbl %>%
+  recipe(context ~ .) %>%
+  step_center(all_predictors(), -all_outcomes()) %>%
+  step_scale(all_predictors(), -all_outcomes()) %>% 
+  prep()
+
+trainData_baked <- bake(recipe, new_data = train_tbl) # convert to the train data to the newly imputed data
+trainData_baked
+
+```
+
+Once we have prepared the `recipe`, we can `bake it` to see the changes applied to it.
+
+### Setting the engine
+
+We set the engine here as a `rand_forest`. We specify a classification mode. Then, we set an engine with engine specific parameters. 
+
+```{r}
+set.seed(123456)
+engine_tidym <- rand_forest(
+    mode = "classification",
+    ## to tune both mtry and trees, uncomment the two lines below and comment the next two lines
+    ##mtry %>% tune(),
+    ##trees %>% tune(),
+    mtry = round(sqrt(23)),
+    trees = 500,
+    min_n = 1
+  ) %>% 
+  set_engine("ranger", importance = "permutation", sample.fraction = 0.632,
+             replace = FALSE, write.forest = T, splitrule = "extratrees",
+             scale.permutation.importance = FALSE) # we add engine specific settings
+```
+
+### Settings for tuning
+
+If we want to tune the model, then uncomment the lines below. It is important to use an mtry that hovers around the round(sqrt(Variables)). If you use all available variables, then your forest is biased as it is able to see all predictors. For number of trees, low numbers are not great, as you can easily underfit the data and not produce meaningful results. Large numbers are fine and Random Forests do not overfit (in theory). 
+
+The full dataset has around 2000 observations, and 23 predictors (well even more, but let's ignore it for the moment). I tuned `mtry` to be between 4 and 6, and `trees` to be between 1000 and 5000 in a 30 step increment. In total, with a 10-folds cross validation, I grew 30 random forests on each fold for a total of 300 Random Forests on the training set!!! This of course will take a loooooong time to compute on your computer if using one thread. So use parallel computing or a cluster. When running in the cluster with 20 cores, each with 11GB RAMs, and it took around 260.442 seconds to run with 220GB RAMS! Of course, with smaller RAMs and number of cores, the code will still run butwill take longer. 
+
+
+```{r}
+## set.seed(123456)
+##gridy_tidym <- grid_random(
+##  mtry() %>% range_set(c(4, 6)),
+##  trees() %>% range_set(c(1000, 5000)),
+##  size = 30
+##  )
+```
+
+### Workflow
+
+Now we define the workflow adding the `recipe` and the `model`.
+
+```{r}
+set.seed(123456)
+wkfl_tidym <- workflow() %>% 
+  add_recipe(recipe) %>% 
+  add_model(engine_tidym)
+```
+
+### Tuning and running model
+
+Here we run the model starting with the workflow, the cross-validation sample, the tuning parameters and asking for specific metrics. Below, we receive one warning:
+
+1. We did not define any tuning, and receive a warning about it.
+
+Above, we added an option to suppress any warning messages from `doFuture`. If you do not use that option, you may receive a warning that some threads are not using correct random seeds. This is a false-positive well known to the developers. For more details, see [this link](https://tune.tidymodels.org/reference/control_grid.html), but also their github page; so you can ignore the warning. 
+
+```{r}
+set.seed(123456)
+system.time(grid_tidym <- 
+  tune_grid(wkfl_tidym, 
+            resamples = train_cv,
+            ## if tuning mtry and trees, uncomment the line below
+            #grid = gridy_tidym,
+            metrics = metric_set(accuracy, roc_auc, sens, spec),
+            control = control_grid(save_pred = TRUE, parallel_over = "resamples"))
+)
+print(grid_tidym)
+```
+
+
+### Finalise model
+
+We obtain the best performing model from cross-validation, then finalise the workflow by predicting the results on the testing set and obtain the results of the best performing model
+
+```{r}
+set.seed(123456)
+collect_metrics(grid_tidym)
+grid_tidym_best <- select_best(grid_tidym, metric = "roc_auc")
+grid_tidym_best
+wkfl_tidym_best <- finalize_workflow(wkfl_tidym, grid_tidym_best)
+wkfl_tidym_final <- last_fit(wkfl_tidym_best, split = train_test_split)
+```
+
+## Results
+
+For the results, we can obtain various metrics on the training and testing sets. 
+
+### Cross-validation on training set
+
+#### Accuracy
+
+```{r}
+percent(show_best(grid_tidym, metric = "accuracy", n = 1)$mean)
+```
+
+#### ROC-AUC
+
+```{r}
+# Cross-validated training performance
+show_best(grid_tidym, metric = "roc_auc", n = 1)$mean
+```
+
+
+#### Sensitivity
+
+```{r}
+show_best(grid_tidym, metric = "sens", n = 1)$mean
+```
+
+#### Specificity
+
+```{r}
+show_best(grid_tidym, metric = "spec", n = 1)$mean
+```
+
+### Predictions testing set
+
+#### Overall
+
+```{r}
+wkfl_tidym_final$.metrics
+```
+
+#### Accuracy
+
+```{r}
+#accuracy
+percent(wkfl_tidym_final$.metrics[[1]]$.estimate[[1]])
+```
+
+#### ROC-AUC
+
+
+```{r}
+#roc-auc
+wkfl_tidym_final$.metrics[[1]]$.estimate[[2]]
+```
+
+### Confusion Matrix training set
+
+```{r warning=FALSE, message=FALSE, error=FALSE, fig.height = 6, fig.width = 8}
+wkfl_tidym_final$.predictions[[1]] %>%
+  conf_mat(context, .pred_class) %>%
+  pluck(1) %>%
+  as_tibble() %>%
+  group_by(Truth) %>% # group by Truth to compute percentages
+  mutate(prop =percent(prop.table(n))) %>% # calculate percentages row-wise
+  ggplot(aes(Prediction, Truth, alpha = prop)) +
+  geom_tile(show.legend = FALSE) +
+  geom_text(aes(label = prop), colour = "white", alpha = 1, size = 8)
+```
+
+
+### Variable Importance
+
+#### Best 10
+
+```{r}
+vip(pull_workflow_fit(wkfl_tidym_final$.workflow[[1]]))
+```
+
+
+#### All predictors
+
+
+```{r}
+vip(pull_workflow_fit(wkfl_tidym_final$.workflow[[1]]), num_features = 23)
+```
+
+
+### Gains curves
+
+This is an interesting features that show how much is gained when looking at various portions of the data. We see a gradual increase in the values. When 50% of the data were tested, around 83% of the results within the non-guttural class were already identified. The more testing was performed, the more confidence in the results there are and then when 84.96% of the data were tested, 100% of the cases were found. 
+
+```{r}
+wkfl_tidym_final$.predictions[[1]] %>%
+  gain_curve(context, `.pred_Non-Guttural`) %>%
+  autoplot() 
+```       
+
+### ROC Curves
+
+```{r}
+wkfl_tidym_final$.predictions[[1]] %>%
+  roc_curve(context, `.pred_Non-Guttural`) %>%
+  autoplot() 
+``` 
+
+
+
+# session info
+
+```{r warning=FALSE, message=FALSE, error=FALSE}
+sessionInfo()
+```
+
