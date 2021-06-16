@@ -51,7 +51,6 @@ We can use any parallel computing package. I use the `doFuture` package as it is
 ncores <- 2
 cat(paste0("Number of cores available for model calculations set to ", ncores, "."))
 registerDoFuture()
-#cl <- parallel::makeCluster(ncores)
 cl <- parallelly::makeClusterPSOCK(ncores)
 plan(cluster, workers = cl)
 ncores
@@ -609,6 +608,7 @@ This full model has a classification accuracy of 82.8%.This is not bad!! It has 
 
 Try and fit two decision trees, the first on bark difference metrics and the second on voice quality metrics. Use the `tidyverse` approach to 1) select predictors and 2) to run ctree. 
 
+Answer below!!
 
 ```{r}
 # formants
@@ -632,6 +632,62 @@ Try and fit two decision trees, the first on bark difference metrics and the sec
 
 
 
+
+
+
+
+
+
+
+
+
+```{r}
+# create two datasets
+dfForm <- dfPharV2  %>% 
+  select(., "context", "Z1mnZ0", "Z2mnZ1", "Z3mnZ2", "Z4mnZ3")
+
+dfVQ <- dfPharV2  %>% 
+  select(., "context", c(2:16, 21:24))
+
+
+set.seed(123456)
+# Formants
+fitForm <- dfForm  %>% 
+  ctree(
+    context ~ ., 
+    data = .)
+print(fitForm)
+plot(fitForm)
+# predictions
+pred.ctree.Form <- predict(fitForm)
+tbl.ctree.Form <- table(pred.ctree.Form, dfForm$context)
+tbl.ctree.Form
+PresenceAbsence::pcc(tbl.ctree.Form)
+PresenceAbsence::specificity(tbl.ctree.Form)
+PresenceAbsence::sensitivity(tbl.ctree.Form)
+roc.ctree.Form <- pROC::roc(dfForm$context, as.numeric(pred.ctree.Form))
+roc.ctree.Form
+pROC::plot.roc(roc.ctree.Form, legacy.axes = TRUE)
+
+set.seed(123456)
+# VQ
+fitVQ <- dfVQ  %>% 
+  ctree(
+    context ~ ., 
+    data = .)
+print(fitVQ)
+plot(fitVQ)
+# predictions
+pred.ctree.VQ <- predict(fitVQ)
+tbl.ctree.VQ <- table(pred.ctree.VQ, dfVQ$context)
+tbl.ctree.VQ
+PresenceAbsence::pcc(tbl.ctree.VQ)
+PresenceAbsence::specificity(tbl.ctree.VQ)
+PresenceAbsence::sensitivity(tbl.ctree.VQ)
+roc.ctree.VQ <- pROC::roc(dfVQ$context, as.numeric(pred.ctree.VQ))
+roc.ctree.VQ
+pROC::plot.roc(roc.ctree.VQ, legacy.axes = TRUE)
+```
 
 
 
@@ -900,6 +956,7 @@ Of course, the output above shows variable p values. The lowest is at 0.048 for 
 Following what we have done above with decision trees, run a Random Forest either with `party` or `ranger` on formants or voice quality. Discuss with your peers the results and we can discuss any issues.. You need to 1) select variables and 2) run the code. Don't forget, you can simply copy and paste the code, but it is best to try to recall the call functions. 
 
 
+Answer below!!
 
 ```{r}
 # formants
@@ -927,6 +984,104 @@ Following what we have done above with decision trees, run a Random Forest eithe
 
 
 
+
+
+
+
+
+
+
+```{r}
+set.seed(123456)
+# With `party`
+## formants
+mdl.cforest.Form <- dfForm %>% 
+  cforest(context ~ ., data = ., 
+          controls = cforest_unbiased(ntree = 100, 
+                                      mtry = round(sqrt(4))))
+pred.cforest.Form <- predict(mdl.cforest.Form, OOB = TRUE)
+tbl.cforest.Form <- table(pred.cforest.Form, dfForm$context)
+tbl.cforest.Form
+PresenceAbsence::pcc(tbl.cforest.Form)
+PresenceAbsence::specificity(tbl.cforest.Form)
+PresenceAbsence::sensitivity(tbl.cforest.Form)
+roc.cforest.Form <- pROC::roc(dfForm$context, as.numeric(pred.cforest.Form))
+roc.cforest.Form
+pROC::plot.roc(roc.cforest.Form, legacy.axes = TRUE)
+
+set.seed(123456)
+## VQ
+mdl.cforest.VQ <- dfVQ %>% 
+  cforest(context ~ ., data = ., 
+          controls = cforest_unbiased(ntree = 100, 
+                                      mtry = round(sqrt(19))))
+pred.cforest.VQ <- predict(mdl.cforest.VQ, OOB = TRUE)
+tbl.cforest.VQ <- table(pred.cforest.VQ, dfVQ$context)
+tbl.cforest.VQ
+PresenceAbsence::pcc(tbl.cforest.VQ)
+PresenceAbsence::specificity(tbl.cforest.VQ)
+PresenceAbsence::sensitivity(tbl.cforest.VQ)
+roc.cforest.VQ <- pROC::roc(dfVQ$context, as.numeric(pred.cforest.VQ))
+roc.cforest.VQ
+pROC::plot.roc(roc.cforest.VQ, legacy.axes = TRUE)
+
+```
+
+
+
+
+
+```{r}
+set.seed(123456)
+# With `ranger`
+## formants
+### training set
+train.idx <- sample(nrow(dfForm), 2/3 * nrow(dfForm))
+gutt.train <- dfForm[train.idx, ]
+gutt.test <- dfForm[-train.idx, ]
+### model
+mdl.ranger.Form <- gutt.train %>% 
+  ranger(context ~ ., data = ., num.trees = 500, mtry = round(sqrt(4)),
+         replace = FALSE, sample.fraction = 0.632, 
+         importance = "permutation", scale.permutation.importance = FALSE,
+         splitrule = "extratrees", num.threads = 1, write.forest = TRUE)
+
+### predictions
+pred.ranger.Form <- predict(mdl.ranger.Form, data = gutt.test)
+tbl.ranger.Form <- table(pred.ranger.Form$predictions, gutt.test$context)
+tbl.ranger.Form
+PresenceAbsence::pcc(tbl.ranger.Form)
+PresenceAbsence::specificity(tbl.ranger.Form)
+PresenceAbsence::sensitivity(tbl.ranger.Form)
+roc.ranger.Form <- pROC::roc(gutt.test$context, as.numeric(pred.ranger.Form$predictions))
+roc.ranger.Form
+pROC::plot.roc(roc.ranger.Form, legacy.axes = TRUE)
+
+set.seed(123456)
+## VQ
+## training sets
+train.idx <- sample(nrow(dfVQ), 2/3 * nrow(dfVQ))
+gutt.train <- dfVQ[train.idx, ]
+gutt.test <- dfVQ[-train.idx, ]
+## model
+mdl.ranger.VQ <- gutt.train %>% 
+  ranger(context ~ ., data = ., num.trees = 500, mtry = round(sqrt(19)),
+         replace = FALSE, sample.fraction = 0.632, 
+         importance = "permutation", scale.permutation.importance = FALSE,
+         splitrule = "extratrees", num.threads = 1, write.forest = TRUE)
+
+## predictions
+pred.ranger.VQ <- predict(mdl.ranger.VQ, data = gutt.test)
+tbl.ranger.VQ <- table(pred.ranger.VQ$predictions, gutt.test$context)
+tbl.ranger.VQ
+PresenceAbsence::pcc(tbl.ranger.VQ)
+PresenceAbsence::specificity(tbl.ranger.VQ)
+PresenceAbsence::sensitivity(tbl.ranger.VQ)
+roc.ranger.VQ <- pROC::roc(gutt.test$context, as.numeric(pred.ranger.VQ$predictions))
+roc.ranger.VQ
+pROC::plot.roc(roc.ranger.VQ, legacy.axes = TRUE)
+
+```
 
 
 
