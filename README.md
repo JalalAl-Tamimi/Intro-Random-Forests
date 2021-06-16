@@ -6,6 +6,7 @@ This repo contains details of the material used in the workshop **Introduction t
 
 Here is the necessary material for the session:
 1. [R Notebook](data/Intro_RF.nb.html); [RMD File](data/Intro_RF.Rmd)
+1. Notebook with expercises: [R Notebook](data/Intro_RF_With_answers.nb.html); [RMD File](data/Intro_RF_With_answers.Rmd)
 2. [Dataset 1](data/grammatical.csv)
 3. [Dataset 2](data/dfPharV2.csv)
 
